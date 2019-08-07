@@ -1,5 +1,4 @@
 import pandas as pd
-import numpy as nd
 
 
 def get_data(year):
@@ -48,42 +47,66 @@ def get_data(year):
 
     historic['home_team'] = historic['home_team'].replace(teams_to_replace)
     historic['away_team'] = historic['away_team'].replace(teams_to_replace)
-
-    # historic.set_index('date', inplace=True)
-    # current_data = historic.filter(like=str(year), axis=0)
     current_data = historic[historic['date'].astype(str).str.contains(str(year))]
 
     return current_data
 
 
 def main():
-    def init(year):
+    def predict(year, round):
         initial_elo = 1500
         elo_dict = {'Broncos': initial_elo, 'Roosters': initial_elo, 'Warriors': initial_elo, 'Eels': initial_elo,
                     'Dragons': initial_elo, 'Rabbitohs': initial_elo, 'Bulldogs': initial_elo, 'Storm': initial_elo,
                     'Sharks': initial_elo, 'Sea_Eagles': initial_elo, 'Tigers': initial_elo, 'Raiders': initial_elo,
                     'Panthers': initial_elo, 'Cowboys': initial_elo, 'Knights': initial_elo, 'Titans': initial_elo}
 
-        # elo_frame = pd.DataFrame(elo_dict, index=[0])
-        # print(elo_frame)
-
         data = get_data(year)
+        # Sort by games played first
         data = data.reindex(index=data.index[::-1])
 
+        # Providing elo ratings for each team, based on results from all current matches in the season
         for idx in data.index:
-            print(idx, data.home_team[idx])
             if data.home_score[idx] > data.away_score[idx]:
-                elo_dict[data.loc[idx,'home_team']] += (0.05 * elo_dict[data.loc[idx,'away_team']])
-                elo_dict[data.loc[idx,'away_team']] -= (0.05 * elo_dict[data.loc[idx,'home_team']])
-                print(str(elo_dict[data.loc[idx, 'home_team']]))
+                home_current_elo = elo_dict[data.loc[idx,'home_team']]
+                away_current_elo = elo_dict[data.loc[idx,'away_team']]
+
+                elo_dict[data.loc[idx, 'home_team']] += (0.05 * home_current_elo)
+                elo_dict[data.loc[idx, 'away_team']] -= (0.045 * away_current_elo)
             else:
-                # elo_dict[data.loc['away_team'].item()] -= (0.05 * elo_dict[data.loc['home_team'].item()])
-                None
+                home_current_elo = elo_dict[data.loc[idx, 'home_team']]
+                away_current_elo = elo_dict[data.loc[idx, 'away_team']]
 
-            # =IF(The_full_2019_NRL_draw__NRL_results_and_season_calendar[@Column1]>The_full_2019_NRL_draw__NRL_results_and_season_calendar[@Column2], K8+(0.05*M8),K8-(0.6*M8))
+                elo_dict[data.loc[idx, 'home_team']] -= (0.05 * home_current_elo)
+                elo_dict[data.loc[idx, 'away_team']] += (0.055 * away_current_elo)
+
+        # Sort by elo points
+        import operator
+        elo_dict_sorted = sorted(elo_dict.items(), key=operator.itemgetter(1))
+        print(elo_dict_sorted)
+
+        # Todo put into ladder format (side by side against actual ladder)
+        # elo_frame = pd.DataFrame([elo_dict_sorted], index=[0])
+        # print(elo_frame)
+
+        print("\nPredicting Round: "+str(round))
+
+        # Todo automate this process
+        round_21_data = [['Cowboys', 'Broncos'], ['Warriors', 'Sea_Eagles'], ['Panthers', 'Sharks'], ['Dragons', 'Titans'],
+                        ['Eels', 'Knights'], ['Bulldogs', 'Tigers'], ['Raiders', 'Roosters'], ['Rabbitohs', 'Storm']]
+        round_21 = pd.DataFrame(round_21_data, columns = ['home_team', 'away_team'])
+
+        print("\n" + str(round_21))
+
+        print("\n")
+        for idx in round_21.index:
+            chance_home_probability = (elo_dict[round_21.loc[idx, 'home_team']] / elo_dict[round_21.loc[idx, 'away_team']])
+            chance_away_probability = (elo_dict[round_21.loc[idx, 'away_team']] / elo_dict[round_21.loc[idx, 'home_team']])
+
+            chance_home = 1 + (1 / chance_home_probability)
+            chance_away = 1 + (1 / chance_away_probability)
+            print("Game "+str(idx + 1)+": "+str("% .2f" % chance_home)," "+str("% .2f" % chance_away))
+
+    predict(2019, 21)
 
 
-        print(data)
-
-    init(2019)
 main()
