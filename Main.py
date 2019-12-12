@@ -40,10 +40,14 @@ def get_data(year):
         'Wests Tigers': 'Tigers'
     }
 
-    # Todo import data from url
+    import requests
+    url = 'http://www.aussportsbetting.com/historical_data/nrl.xlsx'
+    header = {'User-Agent': 'Mozilla/5.0'}
+
+    # Save file locally
+    local_file = requests.get(url, headers=header)
+    open(r'C:\Users\Johnson\PycharmProjects\NRLPredictionModelGit\nrl.xlsx', 'wb').write(local_file.content)
     historic = (pd.read_excel('nrl.xlsx', header=1)[relevant_cols].rename(columns=rename_dict))
-    # http://www.aussportsbetting.com/historical_data/nrl.xlsx
-    # C:\Users\Johnson\Downloads\nrl.xlsx
 
     historic['home_team'] = historic['home_team'].replace(teams_to_replace)
     historic['away_team'] = historic['away_team'].replace(teams_to_replace)
@@ -66,16 +70,13 @@ def main():
 
         # Providing elo ratings for each team, based on results from all current matches in the season
         for idx in data.index:
-            if data.home_score[idx] > data.away_score[idx]:
-                home_current_elo = elo_dict[data.loc[idx,'home_team']]
-                away_current_elo = elo_dict[data.loc[idx,'away_team']]
+            home_current_elo = elo_dict[data.loc[idx, 'home_team']]
+            away_current_elo = elo_dict[data.loc[idx, 'away_team']]
 
+            if data.home_score[idx] > data.away_score[idx]:
                 elo_dict[data.loc[idx, 'home_team']] += (0.05 * home_current_elo)
                 elo_dict[data.loc[idx, 'away_team']] -= (0.045 * away_current_elo)
             else:
-                home_current_elo = elo_dict[data.loc[idx, 'home_team']]
-                away_current_elo = elo_dict[data.loc[idx, 'away_team']]
-
                 elo_dict[data.loc[idx, 'home_team']] -= (0.05 * home_current_elo)
                 elo_dict[data.loc[idx, 'away_team']] += (0.055 * away_current_elo)
 
@@ -106,7 +107,7 @@ def main():
             chance_away = 1 + (1 / chance_away_probability)
             print("Game "+str(idx + 1)+": "+str("% .2f" % chance_home)," "+str("% .2f" % chance_away))
 
-    predict(2019, 21)
+    predict(2019, 22)
 
 
 main()
