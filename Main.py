@@ -3,7 +3,8 @@ import pandas as pd
 
 def get_data(year, round):
     # Get data
-    relevant_cols = ['Date', 'Home Team', 'Away Team', 'Home Score', 'Away Score'] #, 'Home Odds', 'Draw Odds', 'Away Odds']
+    relevant_cols = ['Date', 'Home Team', 'Away Team', 'Home Score', 'Away Score', 'Home Odds', 'Draw Odds',
+                     'Away Odds']
 
     rename_dict = {
         'Date': 'date',
@@ -52,12 +53,16 @@ def get_data(year, round):
     historic['home_team'] = historic['home_team'].replace(teams_to_replace)
     historic['away_team'] = historic['away_team'].replace(teams_to_replace)
 
+    # Choose games in specific year
     historic = historic[historic['date'].astype(str).str.contains(str(year))]
+
     # Sort by games played first
     historic = historic.reindex(index=historic.index[::-1])
 
+    # Create empty data frame for current season data
     current_season_data = pd.DataFrame(columns=relevant_cols).rename(columns=rename_dict)
 
+    # Calculate total games depending on ROUND value
     if round < 12:
         total_games = round * 8
     elif round < 16:
@@ -65,13 +70,17 @@ def get_data(year, round):
     else:
         total_games = (round * 8) - 8
 
+    # Append total games up to ROUND value to current_season_data data frame
     for game in range(total_games):
-        current_season_data = current_season_data.append(historic.iloc[game], ignore_index=True)
-    print(current_season_data)
+        try:
+            current_season_data = current_season_data.append(historic.iloc[game], ignore_index=True)
+        except IndexError:
+            print("Round not available.")
 
     # Create empty data frame for round data only
     current_round_data = pd.DataFrame(columns=relevant_cols).rename(columns=rename_dict)
 
+    # Append round data based on ROUND value
     game_index = 0
     for curr_round in range(25):
         if curr_round == 11 or curr_round == 15:
@@ -82,8 +91,15 @@ def get_data(year, round):
         for match in range(matches):
             game_index += 1
             if curr_round + 1 == round:
-                current_round_data = current_round_data.append(current_season_data.iloc[game_index - 1], ignore_index=True)
+                current_round_data = current_round_data.append(current_season_data.iloc[game_index - 1],
+                                                               ignore_index=True)
+
+    # Remove current round when predicting elo for season
+    current_season_data = current_season_data[:-matches]
+    print(current_season_data)
+
     print(current_round_data)
+
     return current_season_data, current_round_data
 
 
@@ -95,7 +111,6 @@ def predict(year, round):
                 'Panthers': initial_elo, 'Cowboys': initial_elo, 'Knights': initial_elo, 'Titans': initial_elo}
 
     all_data, round_data = get_data(year, round)
-
 
     # Providing elo ratings for each team, based on results from all current matches in the season
     for idx in all_data.index:
@@ -113,9 +128,10 @@ def predict(year, round):
     import operator
     elo_dict_sorted = sorted(elo_dict.items(), key=operator.itemgetter(1))
 
-    print('\nTeams sorted by Elo rankings:\n')
-    #for teams in elo_dict_sorted:
-        #print(teams[0]+': '+str(teams[1]))
+    print('\nTeams sorted by Elo rankings:')
+    for teams in elo_dict_sorted:
+        # Print each team and corresponding elo to 2 decimal places
+        print(teams[0]+': '+str("% .2f" % teams[1]))
 
     # Todo put into ladder format (side by side against actual ladder)
     # elo_frame = pd.DataFrame([elo_dict_sorted], index=[0])
@@ -123,21 +139,32 @@ def predict(year, round):
 
     print("\nPredicting Round: "+str(round))
 
-    current_round = pd.DataFrame(columns = ['home_team', 'home odds', 'away_team', 'away_odds'])
+    current_round = pd.DataFrame(columns=['home_team', 'calc_odds', 'real_odds', 'percent_diff', 'away_team',
+                                          'calc_odds', 'real_odds', 'percent_diff'])
     current_round['home_team'] = round_data['home_team']
     current_round['away_team'] = round_data['away_team']
 
     for idx in current_round.index:
-        chance_home_probability = (elo_dict[current_round.loc[idx, 'home_team']] / elo_dict[current_round.loc[idx, 'away_team']])
-        chance_away_probability = (elo_dict[current_round.loc[idx, 'away_team']] / elo_dict[current_round.loc[idx, 'home_team']])
+        # Calculate probability of win
+        chance_home_probability = (elo_dict[current_round.loc[idx, 'home_team']] /
+                                   elo_dict[current_round.loc[idx, 'away_team']])
+        chance_away_probability = (elo_dict[current_round.loc[idx, 'away_team']] /
+                                   elo_dict[current_round.loc[idx, 'home_team']])
 
         chance_home = 1 + (1 / chance_home_probability)
         chance_away = 1 + (1 / chance_away_probability)
 
+        odds_home = round_data.loc[idx, 'home_odds']
+        odds_away = round_data.loc[idx, 'away_odds']
+
         current_round.iat[idx, 1] = chance_home
-        current_round.iat[idx, 3] = chance_away
+        current_round.iat[idx, 2] = odds_home
+        current_round.iat[idx, 3] = ((chance_home - odds_home) / ((chance_home + odds_home) / 2) * 100)
+        current_round.iat[idx, 5] = chance_away
+        current_round.iat[idx, 6] = odds_away
+        current_round.iat[idx, 7] = ((chance_away - odds_away) / ((chance_away + odds_away) / 2) * 100)
 
-    print("\n" + str(current_round))
+    print(current_round.to_string())
 
 
-predict(2019, 20)
+predict(2019, 10)
