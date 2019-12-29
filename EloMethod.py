@@ -1,5 +1,7 @@
 import pandas as pd
 
+K_FACTOR = 27
+
 
 def get_data(year, round):
     # Get data
@@ -82,6 +84,8 @@ def get_data(year, round):
 
     # Append round data based on ROUND value
     game_index = 0
+    matches = 8
+
     for curr_round in range(25):
         if curr_round == 11 or curr_round == 15:
             matches = 4
@@ -96,9 +100,8 @@ def get_data(year, round):
 
     # Remove current round when predicting elo for season
     current_season_data = current_season_data[:-matches]
-    print(current_season_data)
-
-    print(current_round_data)
+    # print(current_season_data)
+    # print(current_round_data)
 
     return current_season_data, current_round_data
 
@@ -117,54 +120,64 @@ def predict(year, round):
         home_current_elo = elo_dict[all_data.loc[idx, 'home_team']]
         away_current_elo = elo_dict[all_data.loc[idx, 'away_team']]
 
+        prob_win_away = 1 / (1 + 10 ** ((home_current_elo - away_current_elo) / 400))
+        prob_win_home = 1 - prob_win_away
+
         if all_data.home_score[idx] > all_data.away_score[idx]:
-            elo_dict[all_data.loc[idx, 'home_team']] += (0.05 * home_current_elo)
-            elo_dict[all_data.loc[idx, 'away_team']] -= (0.045 * away_current_elo)
+            elo_dict[all_data.loc[idx, 'home_team']] = home_current_elo + K_FACTOR * (1 - prob_win_home)
+            elo_dict[all_data.loc[idx, 'away_team']] = away_current_elo + K_FACTOR * (0 - prob_win_away)
         else:
-            elo_dict[all_data.loc[idx, 'home_team']] -= (0.05 * home_current_elo)
-            elo_dict[all_data.loc[idx, 'away_team']] += (0.055 * away_current_elo)
+            elo_dict[all_data.loc[idx, 'home_team']] = home_current_elo + K_FACTOR * (0 - prob_win_home)
+            elo_dict[all_data.loc[idx, 'away_team']] = away_current_elo + K_FACTOR * (1 - prob_win_away)
 
     # Sort by elo points
     import operator
     elo_dict_sorted = sorted(elo_dict.items(), key=operator.itemgetter(1))
+    elo_ladder = pd.DataFrame(elo_dict_sorted, columns=['Team', 'Elo'])
+    elo_ladder.Elo = elo_ladder.Elo.astype(int)
 
-    print('\nTeams sorted by Elo rankings:')
-    for teams in elo_dict_sorted:
-        # Print each team and corresponding elo to 2 decimal places
-        print(teams[0]+': '+str("% .2f" % teams[1]))
+    print('\nTeams sorted by Elo rankings:\n\n' + str(elo_ladder))
 
     # Todo put into ladder format (side by side against actual ladder)
-    # elo_frame = pd.DataFrame([elo_dict_sorted], index=[0])
-    # print(elo_frame)
 
     print("\nPredicting Round: "+str(round))
 
-    current_round = pd.DataFrame(columns=['home_team', 'calc_odds', 'real_odds', 'percent_diff', 'away_team',
-                                          'calc_odds', 'real_odds', 'percent_diff'])
+    current_round = pd.DataFrame(columns=['home_team', 'calc_odds', 'real_odds', 'percent_diff', 'exp_value', 'away_team',
+                                          'calc_odds', 'real_odds', 'percent_diff', 'exp_value',])
     current_round['home_team'] = round_data['home_team']
     current_round['away_team'] = round_data['away_team']
 
+    # for each game in the round we are predicting
     for idx in current_round.index:
-        # Calculate probability of win
-        chance_home_probability = (elo_dict[current_round.loc[idx, 'home_team']] /
-                                   elo_dict[current_round.loc[idx, 'away_team']])
-        chance_away_probability = (elo_dict[current_round.loc[idx, 'away_team']] /
-                                   elo_dict[current_round.loc[idx, 'home_team']])
+        # Calculate probability of each team winning
+        home_current_elo = elo_dict[current_round.loc[idx, 'home_team']]
+        away_current_elo = elo_dict[current_round.loc[idx, 'away_team']]
 
-        chance_home = 1 + (1 / chance_home_probability)
-        chance_away = 1 + (1 / chance_away_probability)
+        pred_away = 1 / (1 + 10 ** ((home_current_elo - away_current_elo) / 400))
+        pred_home = 1 - pred_away
 
-        odds_home = round_data.loc[idx, 'home_odds']
-        odds_away = round_data.loc[idx, 'away_odds']
+        pred_home_odds = 1 / pred_home
+        pred_away_odds = 1 / pred_away
 
-        current_round.iat[idx, 1] = chance_home
-        current_round.iat[idx, 2] = odds_home
-        current_round.iat[idx, 3] = ((chance_home - odds_home) / ((chance_home + odds_home) / 2) * 100)
-        current_round.iat[idx, 5] = chance_away
-        current_round.iat[idx, 6] = odds_away
-        current_round.iat[idx, 7] = ((chance_away - odds_away) / ((chance_away + odds_away) / 2) * 100)
+        home_odds = round_data.loc[idx, 'home_odds']
+        away_odds = round_data.loc[idx, 'away_odds']
+
+        home_percentage_diff = ((pred_home_odds - home_odds) / ((pred_home_odds + home_odds) / 2) * 100)
+        away_percentage_diff = ((pred_away_odds - away_odds) / ((pred_away_odds + away_odds) / 2) * 100)
+
+        exp_value_home = (pred_home * ((home_odds * 10) - 10)) - (pred_away * 10)
+        exp_value_away = (pred_away * ((away_odds * 10) - 10)) - (pred_home * 10)
+
+        current_round.iat[idx, 1] = pred_home
+        current_round.iat[idx, 2] = home_odds
+        current_round.iat[idx, 3] = home_percentage_diff
+        current_round.iat[idx, 4] = exp_value_home
+        current_round.iat[idx, 6] = pred_away
+        current_round.iat[idx, 7] = away_odds
+        current_round.iat[idx, 8] = away_percentage_diff
+        current_round.iat[idx, 9] = exp_value_away
 
     print(current_round.to_string())
 
 
-predict(2019, 10)
+predict(2019, 11)
