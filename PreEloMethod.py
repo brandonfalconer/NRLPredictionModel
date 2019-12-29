@@ -77,10 +77,10 @@ def get_data(year, round):
         except IndexError:
             print("Round not available.")
 
-    # Create empty data frame for round data only
+    # Create empty data frame for curr_round data only
     current_round_data = pd.DataFrame(columns=relevant_cols).rename(columns=rename_dict)
 
-    # Append round data based on ROUND value
+    # Append curr_round data based on ROUND value
     game_index = 0
     matches = 8
 
@@ -96,7 +96,7 @@ def get_data(year, round):
                 current_round_data = current_round_data.append(current_season_data.iloc[game_index - 1],
                                                                ignore_index=True)
 
-    # Remove current round when predicting elo for season
+    # Remove current curr_round when predicting elo for season
     current_season_data = current_season_data[:-matches]
     # print(current_season_data)
     # print(current_round_data)

@@ -1,6 +1,7 @@
 import pandas as pd
 
 K_FACTOR = 27
+BET_VALUE = 10
 
 
 def get_data(year, round):
@@ -65,12 +66,19 @@ def get_data(year, round):
     current_season_data = pd.DataFrame(columns=relevant_cols).rename(columns=rename_dict)
 
     # Calculate total games depending on ROUND value
-    if round < 12:
-        total_games = round * 8
-    elif round < 16:
-        total_games = (round * 8) - 4
+    if year == 2018:
+        print('p2018')
+        if round < 13:
+            total_games = round * 8
+        else:
+            total_games = (round * 8) - 4
     else:
-        total_games = (round * 8) - 8
+        if round < 12:
+            total_games = round * 8
+        elif round < 16:
+            total_games = (round * 8) - 4
+        else:
+            total_games = (round * 8) - 8
 
     # Append total games up to ROUND value to current_season_data data frame
     for game in range(total_games):
@@ -79,18 +87,21 @@ def get_data(year, round):
         except IndexError:
             print("Round not available.")
 
-    # Create empty data frame for round data only
+    # Create empty data frame for curr_round data only
     current_round_data = pd.DataFrame(columns=relevant_cols).rename(columns=rename_dict)
 
-    # Append round data based on ROUND value
+    # Append curr_round data based on ROUND value
     game_index = 0
     matches = 8
 
     for curr_round in range(25):
-        if curr_round == 11 or curr_round == 15:
+        if (year == 2018) and (curr_round == 13):
             matches = 4
         else:
-            matches = 8
+            if curr_round == 11 or curr_round == 15:
+                matches = 4
+            else:
+                matches = 8
 
         for match in range(matches):
             game_index += 1
@@ -98,7 +109,7 @@ def get_data(year, round):
                 current_round_data = current_round_data.append(current_season_data.iloc[game_index - 1],
                                                                ignore_index=True)
 
-    # Remove current round when predicting elo for season
+    # Remove current curr_round when predicting elo for season
     current_season_data = current_season_data[:-matches]
     # print(current_season_data)
     # print(current_round_data)
@@ -106,14 +117,14 @@ def get_data(year, round):
     return current_season_data, current_round_data
 
 
-def predict(year, round):
+def predict(year, curr_round):
     initial_elo = 1500
     elo_dict = {'Broncos': initial_elo, 'Roosters': initial_elo, 'Warriors': initial_elo, 'Eels': initial_elo,
                 'Dragons': initial_elo, 'Rabbitohs': initial_elo, 'Bulldogs': initial_elo, 'Storm': initial_elo,
                 'Sharks': initial_elo, 'Sea_Eagles': initial_elo, 'Tigers': initial_elo, 'Raiders': initial_elo,
                 'Panthers': initial_elo, 'Cowboys': initial_elo, 'Knights': initial_elo, 'Titans': initial_elo}
 
-    all_data, round_data = get_data(year, round)
+    all_data, round_data = get_data(year, curr_round)
 
     # Providing elo ratings for each team, based on results from all current matches in the season
     for idx in all_data.index:
@@ -140,14 +151,14 @@ def predict(year, round):
 
     # Todo put into ladder format (side by side against actual ladder)
 
-    print("\nPredicting Round: "+str(round))
+    print("\nPredicting Round: " + str(curr_round))
 
     current_round = pd.DataFrame(columns=['home_team', 'calc_odds', 'real_odds', 'percent_diff', 'exp_value', 'away_team',
                                           'calc_odds', 'real_odds', 'percent_diff', 'exp_value',])
     current_round['home_team'] = round_data['home_team']
     current_round['away_team'] = round_data['away_team']
 
-    # for each game in the round we are predicting
+    # for each game in the curr_round we are predicting
     for idx in current_round.index:
         # Calculate probability of each team winning
         home_current_elo = elo_dict[current_round.loc[idx, 'home_team']]
@@ -165,19 +176,19 @@ def predict(year, round):
         home_percentage_diff = ((pred_home_odds - home_odds) / ((pred_home_odds + home_odds) / 2) * 100)
         away_percentage_diff = ((pred_away_odds - away_odds) / ((pred_away_odds + away_odds) / 2) * 100)
 
-        exp_value_home = (pred_home * ((home_odds * 10) - 10)) - (pred_away * 10)
-        exp_value_away = (pred_away * ((away_odds * 10) - 10)) - (pred_home * 10)
+        exp_value_home = (pred_home * ((home_odds * BET_VALUE) - BET_VALUE)) - (pred_away * BET_VALUE)
+        exp_value_away = (pred_away * ((away_odds * BET_VALUE) - BET_VALUE)) - (pred_home * BET_VALUE)
 
-        current_round.iat[idx, 1] = pred_home
+        current_round.iat[idx, 1] = round(pred_home_odds, 2)
         current_round.iat[idx, 2] = home_odds
-        current_round.iat[idx, 3] = home_percentage_diff
-        current_round.iat[idx, 4] = exp_value_home
-        current_round.iat[idx, 6] = pred_away
+        current_round.iat[idx, 3] = round(home_percentage_diff, 2)
+        current_round.iat[idx, 4] = round(exp_value_home, 2)
+        current_round.iat[idx, 6] = round(pred_away_odds, 2)
         current_round.iat[idx, 7] = away_odds
-        current_round.iat[idx, 8] = away_percentage_diff
-        current_round.iat[idx, 9] = exp_value_away
+        current_round.iat[idx, 8] = round(away_percentage_diff, 2)
+        current_round.iat[idx, 9] = round(exp_value_away, 2)
 
     print(current_round.to_string())
 
 
-predict(2019, 11)
+predict(2018, 12)
