@@ -3,7 +3,8 @@ import pandas as pd
 
 def get_data(year, curr_round, update_file):
     # Get data
-    relevant_cols = ['Date', 'Home Team', 'Away Team', 'Home Score', 'Away Score', 'Home Odds', 'Draw Odds', 'Away Odds']
+    relevant_cols = ['Date', 'Home Team', 'Away Team', 'Home Score', 'Away Score', 'Home Odds', 'Draw Odds',
+                     'Away Odds']
 
     rename_dict = {
         'Date': 'date',
@@ -114,11 +115,7 @@ def get_data(year, curr_round, update_file):
 
 
 def predict(year, curr_round, update_file):
-
     initial_elo = 1500
-    k_factor = 27
-    bet_value = 10
-
     elo_dict = {'Broncos': initial_elo, 'Roosters': initial_elo, 'Warriors': initial_elo, 'Eels': initial_elo,
                 'Dragons': initial_elo, 'Rabbitohs': initial_elo, 'Bulldogs': initial_elo, 'Storm': initial_elo,
                 'Sharks': initial_elo, 'Sea_Eagles': initial_elo, 'Tigers': initial_elo, 'Raiders': initial_elo,
@@ -137,13 +134,53 @@ def predict(year, curr_round, update_file):
         prob_win_away = 1 / (1 + 10 ** ((home_current_elo - away_current_elo) / 400))
         prob_win_home = 1 - prob_win_away
 
-        # Calculating the post Elo score, using the Elo formula: 1 - win, 0 - loss, minus the expected score
-        if all_data.home_score[idx] > all_data.away_score[idx]:
-            elo_dict[all_data.loc[idx, 'home_team']] = home_current_elo + k_factor * (1 - prob_win_home)
-            elo_dict[all_data.loc[idx, 'away_team']] = away_current_elo + k_factor * (0 - prob_win_away)
+        # First 10 games impact elo score more, than settle afterwards
+        if idx < 80:
+            k_factor = 40
         else:
-            elo_dict[all_data.loc[idx, 'home_team']] = home_current_elo + k_factor * (0 - prob_win_home)
-            elo_dict[all_data.loc[idx, 'away_team']] = away_current_elo + k_factor * (1 - prob_win_away)
+            k_factor = 30
+
+        # Score difference index
+        home_score = all_data.home_score[idx]
+        away_score = all_data.away_score[idx]
+
+        # Calculating the post Elo score, using the Elo formula: 1 - win, 0 - loss, minus the expected score
+        if home_score > away_score:
+            # Home win
+            if (home_score - away_score) <= 1:
+                score_diff_index_home = 1
+            elif (home_score - away_score) <= 6:
+                score_diff_index_home = 1.1
+            elif (home_score - away_score) <= 12:
+                score_diff_index_home = 1.3
+            else:
+                score_diff_index_home = 1.6
+
+            elo_dict[all_data.loc[idx, 'home_team']] = home_current_elo + \
+                                                       (k_factor * score_diff_index_home * (1 - prob_win_home))
+            elo_dict[all_data.loc[idx, 'away_team']] = away_current_elo + \
+                                                       (k_factor * score_diff_index_home * (0 - prob_win_away))
+
+        elif home_score < away_score:
+            # Away win
+            if (away_score - home_score) <= 1:
+                score_diff_index_away = 1
+            elif (away_score - home_score) <= 6:
+                score_diff_index_away = 1.1
+            elif (away_score - home_score) <= 12:
+                score_diff_index_away = 1.3
+            else:
+                score_diff_index_away = 1.6
+
+            elo_dict[all_data.loc[idx, 'home_team']] = home_current_elo + \
+                                                       (k_factor * score_diff_index_away * (0 - prob_win_home))
+            elo_dict[all_data.loc[idx, 'away_team']] = away_current_elo + \
+                                                       (k_factor * score_diff_index_away * (1 - prob_win_away))
+
+        else:
+            # Draw
+            elo_dict[all_data.loc[idx, 'home_team']] = home_current_elo + (k_factor * (0.5 - prob_win_home))
+            elo_dict[all_data.loc[idx, 'away_team']] = away_current_elo + (k_factor * (0.5 - prob_win_away))
 
     # Sort by elo points
     import operator
@@ -152,12 +189,15 @@ def predict(year, curr_round, update_file):
     elo_ladder.Elo = elo_ladder.Elo.astype(int)
 
     print('\nTeams sorted by Elo rankings:\n\n' + str(elo_ladder))
-    print("\nPredicting Round: " + str(curr_round))
+    print("\nPredicting Round: " + str(curr_round) + ', ' + str(year))
 
     current_round = pd.DataFrame(columns=['home_team', 'calc_odds', 'real_odds', 'percent_diff', 'exp_value',
                                           'away_team', 'calc_odds', 'real_odds', 'percent_diff', 'exp_value'])
     current_round['home_team'] = round_data['home_team']
     current_round['away_team'] = round_data['away_team']
+
+    bet_value = 10
+    home_advantage = 35
 
     # for each game in the curr_round we are predicting
     for idx in current_round.index:
@@ -165,7 +205,7 @@ def predict(year, curr_round, update_file):
         home_current_elo = elo_dict[current_round.loc[idx, 'home_team']]
         away_current_elo = elo_dict[current_round.loc[idx, 'away_team']]
 
-        predict_away = 1 / (1 + 10 ** ((home_current_elo - away_current_elo) / 400))
+        predict_away = 1 / (1 + 10 ** (((home_current_elo + home_advantage) - away_current_elo) / 400))
         predict_home = 1 - predict_away
 
         predict_home_odds = 1 / predict_home
