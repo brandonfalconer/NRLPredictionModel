@@ -1,8 +1,13 @@
+from bs4 import BeautifulSoup
+import numpy as np
 import pandas as pd
 import operator as op
+import requests
+from urllib.request import Request, urlopen
+import re
 
 # Global constants
-HOME_ADVANTAGE = 30
+HOME_ADVANTAGE = 30  # Elo advantage for home team
 REMOVE_PLAYOFF = True
 
 
@@ -31,8 +36,8 @@ def import_data(update_file):
         "Cronulla Sharks": "Sharks",
         "Cronulla-Sutherland Sharks": "Sharks",
         "Gold Coast Titans": "Titans",
-        "Manly Sea Eagles": "Sea_Eagles",
-        "Manly-Warringah Sea Eagles": "Sea_Eagles",
+        "Manly Sea Eagles": "Sea Eagles",
+        "Manly-Warringah Sea Eagles": "Sea Eagles",
         "Melbourne Storm": "Storm",
         "New Zealand Warriors": "Warriors",
         "Newcastle Knights": "Knights",
@@ -44,20 +49,28 @@ def import_data(update_file):
         "St George Dragons": "Dragons",
         "St. George Illawarra Dragons": "Dragons",
         "Sydney Roosters": "Roosters",
-        "Wests Tigers": "Tigers"
+        "Wests Tigers": "Wests Tigers"
     }
 
-    if update_file:
-        import requests
+    def create_file():
         url = "http://www.aussportsbetting.com/historical_data/nrl.xlsx"
         header = {"User-Agent": "Mozilla/5.0"}
 
         # Retrieve updated data and save to local file
         local_file = requests.get(url, headers=header)
-        open(r"C:\Users\Johnson\PycharmProjects\NRLPredictionModelGit\nrl.xlsx", "wb").write(local_file.content)
-        historic_df = pd.read_excel("nrl.xlsx", header=1)[relevant_cols].rename(columns=rename_dict)
+        open(r"NRL_Historical_Data.xlsx", "wb").write(local_file.content)
+
+    if not update_file:
+        try:
+            pd.read_excel("NRL_Historical_Data.xlsx")
+
+        except FileNotFoundError:
+            print("Data file does not exist, creating a new file...")
+            create_file()
     else:
-        historic_df = pd.read_excel("nrl.xlsx", header=1)[relevant_cols].rename(columns=rename_dict)
+        create_file()
+
+    historic_df = pd.read_excel("NRL_Historical_Data.xlsx", header=1)[relevant_cols].rename(columns=rename_dict)
 
     if REMOVE_PLAYOFF:
         historic_df = historic_df[historic_df.play_off != "Y"]
@@ -84,8 +97,52 @@ def get_prior_season_data(year, update_file, past_years):
 
     # Sort by games played first
     historic_df = historic_df.reindex(index=historic_df.index[::-1])
+    historic_df = historic_df.reset_index(drop=True)
 
     return historic_df
+
+
+def get_current_round_data():
+    url = 'https://www.nrl.com/draw/'
+    req = Request(url)
+    html_page = urlopen(req)
+
+    # Get HTML content
+    soup = BeautifulSoup(html_page, 'html.parser')
+    round_data = soup.find("div", id="vue-draw")
+
+    # Return a list of tuples containing team name and odds, in order of home/away
+    round_data_list = re.findall(r'(nickName)(.*?)(\d\.?\d*)', str(round_data))
+
+    # Convert to a list
+    round_data_list = [item for t in round_data_list for item in t]
+    del round_data_list[0::3]
+
+    # Clear unnecessary data
+    for i in range(len(round_data_list)):
+        round_data_list[i] = str.replace(round_data_list[i], '&quot;:&quot;', '')
+        round_data_list[i] = str.replace(round_data_list[i], '&quot;,&quot;odds', '')
+
+    # Convert to a data frame and return
+    home_team, home_odds, away_team, away_odds = [], [], [], []
+
+    while len(round_data_list) > 0:
+        home_team.append(round_data_list[0])
+        round_data_list.remove(round_data_list[0])
+
+        home_odds.append(float(round_data_list[0]))
+        round_data_list.remove(round_data_list[0])
+
+        away_team.append(round_data_list[0])
+        round_data_list.remove(round_data_list[0])
+
+        away_odds.append(float(round_data_list[0]))
+        round_data_list.remove(round_data_list[0])
+
+    round_dict = {'home_team': home_team, 'home_odds': home_odds, 'away_team': away_team, 'away_odds': away_odds}
+    round_data_df = pd.DataFrame(round_dict)
+
+    return round_data_df
 
 
 def get_current_season_data(curr_round, year, update_file):
@@ -147,7 +204,7 @@ def setup_elo():
 
     elo_dict = {"Broncos": initial_elo, "Roosters": initial_elo, "Warriors": initial_elo, "Eels": initial_elo,
                 "Dragons": initial_elo, "Rabbitohs": initial_elo, "Bulldogs": initial_elo, "Storm": initial_elo,
-                "Sharks": initial_elo, "Sea_Eagles": initial_elo, "Tigers": initial_elo, "Raiders": initial_elo,
+                "Sharks": initial_elo, "Sea Eagles": initial_elo, "Wests Tigers": initial_elo, "Raiders": initial_elo,
                 "Panthers": initial_elo, "Cowboys": initial_elo, "Knights": initial_elo, "Titans": initial_elo}
 
     return elo_dict
@@ -164,7 +221,7 @@ def calculate_elo(data_df, elo_dict, k_factor, variable_k_factor):
         prob_win_home = 1 - prob_win_away
 
         if variable_k_factor:
-            if idx < 40:
+            if idx < 48:
                 k_factor = 40
             else:
                 k_factor = 30
@@ -214,39 +271,41 @@ def calculate_elo(data_df, elo_dict, k_factor, variable_k_factor):
     return elo_dict
 
 
-def predict_current_round(season_df, all_df):
+def predict_current_round(round_df, all_df, bet_value):
     # Specified season data to base calculations off
     all_data_df = all_df
 
     # Current season data up to specified round
-    season_data_df = season_df[0]
+    # season_data_df = season_df[0]
     # Current round data
-    round_data_df = season_df[1]
+    round_data_df = round_df
 
     # Setup elo dictionary with initial values at 1500
     elo_dict = setup_elo()
 
     # Calculate elo from previous seasons
-    elo_dict = calculate_elo(all_data_df, elo_dict, k_factor=20, variable_k_factor=False)
+    elo_dict = calculate_elo(all_data_df, elo_dict, k_factor=30, variable_k_factor=True)
 
     # Calculate elo from current season up to specified round
-    elo_dict = calculate_elo(season_data_df, elo_dict, k_factor=30, variable_k_factor=True)
+    # elo_dict = calculate_elo(season_data_df, elo_dict, k_factor=30, variable_k_factor=True)
 
     # Sort by elo points
-
     elo_dict_sorted = sorted(elo_dict.items(), key=op.itemgetter(1))
     elo_ladder = pd.DataFrame(elo_dict_sorted, columns=["Team", "Elo"])
     elo_ladder.Elo = elo_ladder.Elo.astype(int)
+
+    # Sort by descending
+    elo_ladder = elo_ladder.reindex(index=elo_ladder.index[::-1])
+    elo_ladder = elo_ladder.reset_index(drop=True)
 
     print("\nTeams sorted by Elo rankings:\n" + str(elo_ladder) + "\n")
     # print("\nPredicting Round: " + str(curr_round) + ", " + str(year))
 
     current_round_df = pd.DataFrame(columns=["home_team", "calc_odds", "real_odds", "percent_diff", "exp_value_h",
                                              "away_team", "calc_odds", "real_odds", "percent_diff", "exp_value_a"])
+
     current_round_df["home_team"] = round_data_df["home_team"]
     current_round_df["away_team"] = round_data_df["away_team"]
-
-    bet_value = 10
 
     # for each game in the curr_round we are predicting
     for idx in current_round_df.index:
@@ -283,18 +342,19 @@ def predict_current_round(season_df, all_df):
     return current_round_df
 
 
-def value_bets(current_round_df):
-    current_round = current_round_df
-
+def value_bets(current_round_df, exp_value_threshold):
     # Value bets where expected value on a $10 bet is greater than $1.5
-    exp_value_threshold = 1.5
-    value_home = current_round[current_round["exp_value_h"] > exp_value_threshold]
-    value_away = current_round[current_round["exp_value_a"] > exp_value_threshold]
+    value_home = current_round_df[current_round_df["exp_value_h"] > exp_value_threshold]
+    value_away = current_round_df[current_round_df["exp_value_a"] > exp_value_threshold]
 
     print("\nValue Bets:")
+
     if not value_home.empty:
+        print("\nHome Team")
         print(value_home.to_string())
+
     if not value_away.empty:
+        print("\nAway Team")
         print(value_away.to_string())
 
 
@@ -432,7 +492,6 @@ def back_test(year, years_prior, bet_value, perc_diff_upper_threshold, perc_diff
             # Draw
             elo_dict[current_season_df.loc[idx, "home_team"]] = home_current_elo + (k_factor * (0.5 - predict_home))
             elo_dict[current_season_df.loc[idx, "away_team"]] = away_current_elo + (k_factor * (0.5 - predict_away))
-
             # Lost both bets
             if place_bet_home or place_bet_away:
                 overall_winnings -= bet_value
@@ -455,3 +514,32 @@ def back_test(year, years_prior, bet_value, perc_diff_upper_threshold, perc_diff
     print("ROI:", roi, "\n")
 
     return roi, total_wagered, profit
+
+
+def average_stats():
+    season_df = get_prior_season_data(2019, False, 5)
+
+    home_score = 0
+    away_score = 0
+    games = 0
+    over_50 = 0
+
+    for idx in season_df.index:
+        h_score = season_df.home_score[idx]
+        a_score = season_df.away_score[idx]
+
+        if (h_score + a_score) > 50:
+            over_50 += 1
+
+        home_score += season_df.home_score[idx]
+        away_score += season_df.away_score[idx]
+        games += 1
+
+    average_home_score = home_score / games
+    average_away_score = away_score / games
+    average_points_per_game = average_home_score + average_away_score
+    perc_games_over_50 = 1 / (over_50 / games)
+
+    print("\nAverage statistics across games 2015-2019 regular season:")
+    print("\nAverage points per game:", average_points_per_game, "\nHome:", average_home_score, "\nAway:",
+          average_away_score, "\nPercent over 50:", perc_games_over_50, over_50, games)
