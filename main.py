@@ -2,6 +2,7 @@ import Functions.all_functions as functions
 
 
 def main():
+    '''
     # Calculate back testing using historical data
     total_wagered = 0
     total_roi = 0
@@ -22,6 +23,7 @@ def main():
     print("\nOverall ROI:", overall_roi)
     print("Profit:", total_profit)
     print("Total Wagered:", total_wagered)
+    '''
 
     round_data_df = functions.get_current_round_data()
     historical_data_df = functions.get_prior_season_data(year=2020, update_file=False, past_years=0)
@@ -32,7 +34,7 @@ def main():
     functions.value_bets(current_round_predicted, exp_value_threshold=1.5)
 
     # Calculate match point statistics over the period 2015-19
-    # functions.average_stats()
+    functions.average_stats(start_year=2019, variable_k_factor=False, years_prior=0)
 
 
 if __name__ == "__main__":

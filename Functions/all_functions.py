@@ -1,13 +1,14 @@
 from bs4 import BeautifulSoup
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 import operator as op
 import requests
 from urllib.request import Request, urlopen
 import re
 
 # Global constants
-HOME_ADVANTAGE = 30  # Elo advantage for home team
+HOME_ADVANTAGE = 15  # Elo advantage for home team
 REMOVE_PLAYOFF = True
 
 
@@ -122,6 +123,7 @@ def get_current_round_data():
     for i in range(len(round_data_list)):
         round_data_list[i] = str.replace(round_data_list[i], '&quot;:&quot;', '')
         round_data_list[i] = str.replace(round_data_list[i], '&quot;,&quot;odds', '')
+        round_data_list[i] = str.replace(round_data_list[i], '&quot;,&quot;score&quot;:', '')
 
     # Convert to a data frame and return
     home_team, home_odds, away_team, away_odds = [], [], [], []
@@ -222,7 +224,7 @@ def calculate_elo(data_df, elo_dict, k_factor, variable_k_factor):
 
         if variable_k_factor:
             if idx < 48:
-                k_factor = 40
+                k_factor = 60
             else:
                 k_factor = 30
 
@@ -350,7 +352,7 @@ def value_bets(current_round_df, exp_value_threshold):
     print("\nValue Bets:")
 
     if not value_home.empty:
-        print("\nHome Team")
+        print("Home Team")
         print(value_home.to_string())
 
     if not value_away.empty:
@@ -516,14 +518,17 @@ def back_test(year, years_prior, bet_value, perc_diff_upper_threshold, perc_diff
     return roi, total_wagered, profit
 
 
-def average_stats():
-    season_df = get_prior_season_data(2019, False, 5)
+def average_stats(start_year, variable_k_factor, years_prior):
+    season_df = get_prior_season_data(start_year, variable_k_factor, years_prior)
+
+    season_df.plot(x='home_score', y='away_score', kind='scatter', title=str(start_year) + ' Home vs Away Score')
+    plt.show()
 
     home_score = 0
     away_score = 0
     games = 0
     over_50 = 0
-
+    # TODO fix
     for idx in season_df.index:
         h_score = season_df.home_score[idx]
         a_score = season_df.away_score[idx]
@@ -538,8 +543,8 @@ def average_stats():
     average_home_score = home_score / games
     average_away_score = away_score / games
     average_points_per_game = average_home_score + average_away_score
-    perc_games_over_50 = 1 / (over_50 / games)
+    percent_games_over_50 = 1 / (over_50 / games)
 
-    print("\nAverage statistics across games 2015-2019 regular season:")
-    print("\nAverage points per game:", average_points_per_game, "\nHome:", average_home_score, "\nAway:",
-          average_away_score, "\nPercent over 50:", perc_games_over_50, over_50, games)
+    print("\nAverage statistics across games in the", start_year, "-", start_year-years_prior, "regular season.")
+    print("\nGames Evaluated:", games, "\nAverage points per game:", average_points_per_game, "\nHome:", average_home_score, "\nAway:",
+          average_away_score, "\nPercent over 50:", percent_games_over_50, " Amount:", over_50)
